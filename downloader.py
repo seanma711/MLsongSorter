@@ -3,12 +3,10 @@ import os
 import json
 import time
 
-def download_song(name, artist, spotify_id, duration_ms, output_folder="audio"):
+def download_song(name, artist, spotify_id, output_folder="audio"):
     output_path = f"{output_folder}/{spotify_id}"
     
-    # Skip if already downloaded
     if os.path.exists(f"{output_path}.mp3"):
-        print(f"Already have: {name} - {artist}")
         return {"status": "skipped", "id": spotify_id}
     
     query = f"{name} {artist} audio"
@@ -26,29 +24,44 @@ def download_song(name, artist, spotify_id, duration_ms, output_folder="audio"):
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Search without downloading first
-            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-            video = info['entries'][0]
-            
-            # Check duration (10% tolerance)
-            expected_sec = duration_ms / 1000
-            actual_sec = video['duration']
-            diff_percent = abs(expected_sec - actual_sec) / expected_sec
-            
-            if diff_percent > 0.10:
-                print(f"Duration mismatch: {name} - {artist} (expected {expected_sec:.0f}s, got {actual_sec}s)")
-                return {"status": "duration_mismatch", "id": spotify_id, "expected": expected_sec, "actual": actual_sec}
-            
-            # Download if checks pass
-            ydl.download([video['webpage_url']])
-            print(f"Downloaded: {name} - {artist}")
-            return {"status": "success", "id": spotify_id}
-            
+            ydl.download([f"ytsearch1:{query}"])
+        return {"status": "success", "id": spotify_id}
     except Exception as e:
-        print(f"Failed: {name} - {artist} - {e}")
         return {"status": "failed", "id": spotify_id, "error": str(e)}
 
 
+def download_all():
+    # Load songs
+    with open('songs.json', 'r') as f:
+        songs = json.load(f)
+    
+    # Create audio folder
+    os.makedirs('audio', exist_ok=True)
+    
+    # Track results
+    results = {"success": 0, "skipped": 0, "failed": []}
+    
+    for i, song in enumerate(songs):
+        print(f"[{i+1}/{len(songs)}] {song['name']} - {song['artist']}")
+        
+        result = download_song(song['name'], song['artist'], song['id'])
+        
+        if result['status'] == 'success':
+            results['success'] += 1
+        elif result['status'] == 'skipped':
+            results['skipped'] += 1
+        else:
+            results['failed'].append(song)
+        
+        # Small delay between downloads
+        time.sleep(2)
+    
+    # Save failed songs for retry
+    with open('failed.json', 'w') as f:
+        json.dump(results['failed'], f, indent=2)
+    
+    print(f"\nDone! Success: {results['success']}, Skipped: {results['skipped']}, Failed: {len(results['failed'])}")
+
+
 if __name__ == "__main__":
-    # Test with one song from your library
-    download_song("Chamber Of Reflection", "Mac DeMarco", "test123", 323000)
+    download_all()
