@@ -1,37 +1,105 @@
-import yt_dlp
+import json
+from flask import Flask, jsonify, redirect, request
+from flask_cors import CORS
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from dotenv import load_dotenv
 import os
 
-def download_song(name, artist, spotify_id, output_folder="audio"):
-    output_path = f"{output_folder}/{spotify_id}"
-    
-    # Skip if already downloaded
-    if os.path.exists(f"{output_path}.mp3"):
-        print(f"Already have: {name} - {artist}")
-        return {"status": "skipped", "id": spotify_id}
-    
-    query = f"{name} {artist} audio"
-    
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': output_path,
-        'quiet': True,
-    }
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([f"ytsearch1:{query}"])
-        print(f"Downloaded: {name} - {artist}")
-        return {"status": "success", "id": spotify_id}
-            
-    except Exception as e:
-        print(f"Failed: {name} - {artist} - {e}")
-        return {"status": "failed", "id": spotify_id, "error": str(e)}
+load_dotenv()
 
+app = Flask(__name__)
+CORS(app)
+
+def get_sp_oauth():
+    print(os.getenv("SPOTIPY_REDIRECT_URI"))
+    return SpotifyOAuth(
+        client_id=os.getenv("SPOTIPY_CLIENT_ID"),
+        client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
+        redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI"),
+        scope="user-library-read playlist-modify-public playlist-modify-private",
+        open_browser=False,
+    )
+
+def get_spotify_client():
+    sp_oauth = get_sp_oauth()
+    if token_info := sp_oauth.get_cached_token():
+        return spotipy.Spotify(auth=token_info['access_token'])
+    else:
+        return None
+
+@app.route("/callback")
+def callback():
+    code = request.args.get('code')
+    sp_oauth = get_sp_oauth()
+    sp_oauth.get_access_token(code)
+    return "Logged in successfully! You can close this window."
+
+@app.route("/login")
+def login():
+    sp_oauth = get_sp_oauth()
+    token_info = sp_oauth.get_cached_token()
+    
+    if token_info:
+        return jsonify({"message": "Already logged in"})
+    
+    return redirect(sp_oauth.get_authorize_url())
+
+@app.route("/fetch_liked_songs")
+def fetch_liked_songs():
+    sp = get_spotify_client()
+    if not sp:
+        return redirect("/login")
+
+    results = sp.current_user_saved_tracks(limit=50)
+    songs = []
+    for item in results['items']:
+        track = item['track']
+        songs.append({
+            "id": track['id'],
+            "name": track['name'],
+            "artist": track['artists'][0]['name'],
+            "album": track['album']['name'],
+        })
+    return jsonify(songs)
+
+@app.route("/fetch_all_liked_songs")
+def fetch_all_liked_songs():
+    sp = get_spotify_client()
+    if not sp:
+        return redirect("/login")
+
+    all_songs = []
+    offset = 0
+    limit = 50
+
+    while True:
+        results = sp.current_user_saved_tracks(limit=limit, offset=offset)
+        items = results['items']
+        
+        if not items:
+            break
+        
+        for item in items:
+            track = item['track']
+            all_songs.append({
+                "id": track['id'],
+                "name": track['name'],
+                "artist": track['artists'][0]['name'],
+                "duration_ms": track['duration_ms'],
+            })
+        
+        offset += limit
+        print(f"Fetched {len(all_songs)} songs so far...")
+
+    # Save to file so we don't have to fetch again
+    with open('songs.json', 'w') as f:
+        json.dump(all_songs, f, indent=2)
+
+    return jsonify({
+        "total": len(all_songs),
+        "songs": all_songs
+    })
 
 if __name__ == "__main__":
-    download_song("Chamber Of Reflection", "Mac DeMarco", "test123")
+    app.run(debug=True, port=8000)
