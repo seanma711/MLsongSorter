@@ -1,0 +1,9 @@
+Flask
+spotipy
+pandas
+numpy
+scikit-learn
+umap-learn
+hdbscan
+python-dotenv
+flask-cors
