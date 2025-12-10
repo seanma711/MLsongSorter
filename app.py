@@ -54,19 +54,12 @@ def fetch_liked_songs():
     songs = []
     for item in results['items']:
         track = item['track']
-        features = sp.audio_features(track['id'])[0]
         songs.append({
             "id": track['id'],
             "name": track['name'],
             "artist": track['artists'][0]['name'],
-            "energy": features['energy'],
-            "danceability": features['danceability'],
-            "valence": features['valence'],
-            "acousticness": features['acousticness'],
-            "tempo": features['tempo'],
-            "instrumentalness": features['instrumentalness']
+            "album": track['album']['name'],
         })
-
     return jsonify(songs)
 
 if __name__ == "__main__":
